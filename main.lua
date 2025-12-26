@@ -630,7 +630,7 @@ function SudokuBoardWidget:init()
             local m = RenderText:sizeUtf8Text(0, max_w, face, "8", true, false)
             local h = m.y_bottom - m.y_top
             if m.x <= max_w and h <= max_h then
-                local final_size = math.max(8, size - 1)
+                local final_size = math.max(8, size - 2)
                 self.note_face = Font:getFace("smallinfofont", final_size)
                 self.note_face_size = final_size
                 self.note_mini_padding = padding
@@ -651,7 +651,7 @@ function SudokuBoardWidget:init()
             local m = RenderText:sizeUtf8Text(0, max_w, face, "8", true, false)
             local h = m.y_bottom - m.y_top
             if m.x <= max_w and h <= max_h then
-                local final_size = math.max(10, size - 3)
+                local final_size = math.max(10, size - 4)
                 self.number_face = Font:getFace("cfont", final_size)
                 self.number_face_size = final_size
                 self.number_cell_padding = padding
