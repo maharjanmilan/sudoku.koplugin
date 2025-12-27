@@ -613,6 +613,53 @@ function SudokuBoardWidget:init()
     self.paint_rect = Geom:new{ x = 0, y = 0, w = self.size, h = self.size }
     self.number_face = Font:getFace("cfont", math.max(28, math.floor(self.size / 14)))
     self.note_face = Font:getFace("smallinfofont", math.max(16, math.floor(self.size / 28)))
+    self.number_face_size = self.number_face.size
+    self.number_cell_padding = 0
+    self.note_face_size = self.note_face.size
+    self.note_mini_padding = 0
+    do
+        local cell = self.size / 9
+        local mini = cell / 3
+        local padding = math.max(1, math.floor(mini / 8))
+        local safety = math.max(1, math.floor(mini / 18))
+        local max_w = math.max(1, math.floor(mini - 2 * padding - safety))
+        local max_h = math.max(1, math.floor(mini - 2 * padding - safety))
+        local size = self.note_face_size
+        while size > 8 do
+            local face = Font:getFace("smallinfofont", size)
+            local m = RenderText:sizeUtf8Text(0, max_w, face, "8", true, false)
+            local h = m.y_bottom - m.y_top
+            if m.x <= max_w and h <= max_h then
+                local final_size = math.max(8, size - 2)
+                self.note_face = Font:getFace("smallinfofont", final_size)
+                self.note_face_size = final_size
+                self.note_mini_padding = padding
+                break
+            end
+            size = size - 1
+        end
+    end
+    do
+        local cell = self.size / 9
+        local padding = math.max(2, math.floor(cell / 9))
+        local safety = math.max(1, math.floor(cell / 20))
+        local max_w = math.max(1, math.floor(cell - 2 * padding - safety))
+        local max_h = math.max(1, math.floor(cell - 2 * padding - safety))
+        local size = self.number_face_size
+        while size > 10 do
+            local face = Font:getFace("cfont", size)
+            local m = RenderText:sizeUtf8Text(0, max_w, face, "8", true, false)
+            local h = m.y_bottom - m.y_top
+            if m.x <= max_w and h <= max_h then
+                local final_size = math.max(10, size - 4)
+                self.number_face = Font:getFace("cfont", final_size)
+                self.number_face_size = final_size
+                self.number_cell_padding = padding
+                break
+            end
+            size = size - 1
+        end
+    end
     self.ges_events = {
         Tap = {
             GestureRange:new{
@@ -713,10 +760,12 @@ function SudokuBoardWidget:paintTo(bb, x, y)
                     color = Blitbuffer.COLOR_RED
                 end
                 local text = tostring(value)
-                local metrics = RenderText:sizeUtf8Text(0, cell, self.number_face, text, true, false)
+                local cell_padding = self.number_cell_padding or 0
+                local cell_inner = math.max(1, math.floor(cell - 2 * cell_padding))
+                local metrics = RenderText:sizeUtf8Text(0, cell_inner, self.number_face, text, true, false)
                 local text_w = metrics.x
-                local baseline = cell_y + math.floor((cell + metrics.y_top - metrics.y_bottom) / 2)
-                local text_x = cell_x + math.floor((cell - text_w) / 2)
+                local baseline = cell_y + cell_padding + math.floor((cell_inner + metrics.y_top - metrics.y_bottom) / 2)
+                local text_x = cell_x + cell_padding + math.floor((cell_inner - text_w) / 2)
                 RenderText:renderUtf8Text(bb, text_x, baseline, self.number_face, text, true, false, color)
                 if is_given and DISPLAY_PINS_ON_GIVEN then
                     local dot = math.max(1, math.floor(cell / 18))
@@ -737,6 +786,8 @@ function SudokuBoardWidget:paintTo(bb, x, y)
                 local notes = self.board:getCellNotes(row, col)
                 if notes then
                     local mini = cell / 3
+                    local mini_padding = self.note_mini_padding or 0
+                    local mini_inner = math.max(1, math.floor(mini - 2 * mini_padding))
                     for digit = 1, 9 do
                         if notes[digit] then
                             local mini_col = (digit - 1) % 3
@@ -744,9 +795,9 @@ function SudokuBoardWidget:paintTo(bb, x, y)
                             local mini_x = x + (col - 1) * cell + mini_col * mini
                             local mini_y = y + (row - 1) * cell + mini_row * mini
                             local note_text = tostring(digit)
-                            local note_metrics = RenderText:sizeUtf8Text(0, mini, self.note_face, note_text, true, false)
-                            local note_baseline = mini_y + math.floor((mini + note_metrics.y_top - note_metrics.y_bottom) / 2)
-                            local note_x = mini_x + math.floor((mini - note_metrics.x) / 2)
+                            local note_metrics = RenderText:sizeUtf8Text(0, mini_inner, self.note_face, note_text, true, false)
+                            local note_baseline = mini_y + mini_padding + math.floor((mini_inner + note_metrics.y_top - note_metrics.y_bottom) / 2)
+                            local note_x = mini_x + mini_padding + math.floor((mini_inner - note_metrics.x) / 2)
                             RenderText:renderUtf8Text(bb, note_x, note_baseline, self.note_face, note_text, true, false, Blitbuffer.COLOR_GRAY_4)
                         end
                     end
@@ -1115,9 +1166,17 @@ local Sudoku = WidgetContainer:extend{
     is_doc_only = false,
 }
 
+function Sudoku:ensureSettings()
+    if not self.settings_file then
+        self.settings_file = DataStorage:getSettingsDir() .. "/sudoku.lua"
+    end
+    if not self.settings then
+        self.settings = LuaSettings:open(self.settings_file)
+    end
+end
+
 function Sudoku:init()
-    self.settings_file = DataStorage:getSettingsDir() .. "/sudoku.lua"
-    self.settings = LuaSettings:open(self.settings_file)
+    self:ensureSettings()
     self.ui.menu:registerToMainMenu(self)
 end
 
@@ -1133,6 +1192,7 @@ end
 
 function Sudoku:getBoard()
     if not self.board then
+        self:ensureSettings()
         self.board = SudokuBoard:new()
         local state = self.settings:readSetting("state")
         if not self.board:load(state) then
@@ -1146,6 +1206,7 @@ function Sudoku:saveState()
     if not self.board then
         return
     end
+    self:ensureSettings()
     self.settings:saveSetting("state", self.board:serialize())
     self.settings:flush()
 end
