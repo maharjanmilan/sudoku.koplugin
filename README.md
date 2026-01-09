@@ -1,10 +1,11 @@
 # KOReader Sudoku Plugin
 
 This plugin brings a straightforward Sudoku experience to KOReader so you can solve puzzles while reading.
+Optimized for keyboard support. Works on Kindle 4. 
 
 ## Features
 - Multiple difficulty levels
-- Controls optimized for touch
+- Controls optimized for key
 - Automatic progress saving
 
 ## Installation
