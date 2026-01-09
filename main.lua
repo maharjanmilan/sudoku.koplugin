@@ -668,6 +668,51 @@ function SudokuBoardWidget:init()
             }
         }
     }
+    if Device:hasKeys() then
+        local function addKey(list, key)
+            if key then
+                list[#list + 1] = { key }
+            end
+        end
+        local function groupKey(name)
+            return Device and Device.input and Device.input.group and Device.input.group[name] or nil
+        end
+
+        self.key_events = {
+            MoveNorth = {},
+            MoveSouth = {},
+            MoveWest = {},
+            MoveEast = {},
+            Press = {},
+        }
+
+        -- Prefer raw key names (what Kindle/KOReader often emits), but also accept group keys.
+        addKey(self.key_events.MoveNorth, "Up")
+        addKey(self.key_events.MoveNorth, "CursorUp")
+        addKey(self.key_events.MoveNorth, groupKey("Up"))
+
+        addKey(self.key_events.MoveSouth, "Down")
+        addKey(self.key_events.MoveSouth, "CursorDown")
+        addKey(self.key_events.MoveSouth, groupKey("Down"))
+
+        addKey(self.key_events.MoveWest, "Left")
+        addKey(self.key_events.MoveWest, "CursorLeft")
+        addKey(self.key_events.MoveWest, groupKey("Left"))
+
+        addKey(self.key_events.MoveEast, "Right")
+        addKey(self.key_events.MoveEast, "CursorRight")
+        addKey(self.key_events.MoveEast, groupKey("Right"))
+
+        addKey(self.key_events.Press, "Press")
+        addKey(self.key_events.Press, "Select")
+        addKey(self.key_events.Press, groupKey("Press"))
+
+        -- Add number key handlers if available
+        for i = 1, 9 do
+            local key_str = tostring(i)
+            self.key_events[key_str] = { { key_str } }
+        end
+    end
 end
 
 function SudokuBoardWidget:getCellFromPoint(x, y)
@@ -701,6 +746,109 @@ function SudokuBoardWidget:onTap(_, ges)
     self:refresh()
     return true
 end
+
+function SudokuBoardWidget:onMoveNorth()
+    if not self.board then
+        return false
+    end
+    local row, col = self.board:getSelection()
+    if row > 1 then
+        self.board:setSelection(row - 1, col)
+        if self.onSelectionChanged then
+            self.onSelectionChanged(row - 1, col)
+        end
+        self:refresh()
+        if self.onStatusUpdate then
+            self.onStatusUpdate()
+        end
+    end
+    return true
+end
+
+function SudokuBoardWidget:onMoveSouth()
+    if not self.board then
+        return false
+    end
+    local row, col = self.board:getSelection()
+    if row < 9 then
+        self.board:setSelection(row + 1, col)
+        if self.onSelectionChanged then
+            self.onSelectionChanged(row + 1, col)
+        end
+        self:refresh()
+        if self.onStatusUpdate then
+            self.onStatusUpdate()
+        end
+    end
+    return true
+end
+
+function SudokuBoardWidget:onMoveWest()
+    if not self.board then
+        return false
+    end
+    local row, col = self.board:getSelection()
+    if col > 1 then
+        self.board:setSelection(row, col - 1)
+        if self.onSelectionChanged then
+            self.onSelectionChanged(row, col - 1)
+        end
+        self:refresh()
+        if self.onStatusUpdate then
+            self.onStatusUpdate()
+        end
+    end
+    return true
+end
+
+function SudokuBoardWidget:onMoveEast()
+    if not self.board then
+        return false
+    end
+    local row, col = self.board:getSelection()
+    if col < 9 then
+        self.board:setSelection(row, col + 1)
+        if self.onSelectionChanged then
+            self.onSelectionChanged(row, col + 1)
+        end
+        self:refresh()
+        if self.onStatusUpdate then
+            self.onStatusUpdate()
+        end
+    end
+    return true
+end
+
+function SudokuBoardWidget:onPress()
+    if not self.board or not self.onErase then
+        return false
+    end
+    self.onErase()
+    return true
+end
+
+function SudokuBoardWidget:onKeyPress(key)
+    if not self.board or not self.onDigit then
+        return false
+    end
+    local digit = tonumber(key)
+    if digit and digit >= 1 and digit <= 9 then
+        self.onDigit(digit)
+        return true
+    end
+    return false
+end
+
+-- Individual number key handlers
+function SudokuBoardWidget:on1() if self.onDigit then self.onDigit(1); return true end return false end
+function SudokuBoardWidget:on2() if self.onDigit then self.onDigit(2); return true end return false end
+function SudokuBoardWidget:on3() if self.onDigit then self.onDigit(3); return true end return false end
+function SudokuBoardWidget:on4() if self.onDigit then self.onDigit(4); return true end return false end
+function SudokuBoardWidget:on5() if self.onDigit then self.onDigit(5); return true end return false end
+function SudokuBoardWidget:on6() if self.onDigit then self.onDigit(6); return true end return false end
+function SudokuBoardWidget:on7() if self.onDigit then self.onDigit(7); return true end return false end
+function SudokuBoardWidget:on8() if self.onDigit then self.onDigit(8); return true end return false end
+function SudokuBoardWidget:on9() if self.onDigit then self.onDigit(9); return true end return false end
 
 function SudokuBoardWidget:refresh()
     local rect = self.paint_rect
@@ -809,17 +957,203 @@ end
 
 local SudokuScreen = InputContainer:extend{}
 
+local function normalizeKeyEvent(key)
+    -- KOReader may pass a string key name OR a table/event object depending on backend.
+    if type(key) == "table" then
+        local v = key.key or key.name or key.code or key.sym or key.keycode or key.key_code or key.keyname or key.key_name or key[1]
+        if type(v) == "table" then
+            v = v.key or v.name or v.code or v.sym or v.keycode or v.key_name or v[1]
+        end
+        return v
+    end
+    return key
+end
+
+function SudokuScreen:onKeyPress(key)
+    local k = normalizeKeyEvent(key)
+    
+    if not (Device:hasKeys() and self.board and self.board_widget) then
+        return false
+    end
+
+    local group = Device and Device.input and Device.input.group or {}
+
+    -- 5-way navigation: always moves the grid selection
+    if k == "Up" or k == "up" or k == "CursorUp" or k == "cursorup" or k == "KP8" or (group.Up and k == group.Up) then
+        return self:onMoveNorth()
+    elseif k == "Down" or k == "down" or k == "CursorDown" or k == "cursordown" or k == "KP2" or (group.Down and k == group.Down) then
+        return self:onMoveSouth()
+    elseif k == "Left" or k == "left" or k == "CursorLeft" or k == "cursorleft" or k == "KP4" or (group.Left and k == group.Left) then
+        return self:onMoveWest()
+    elseif k == "Right" or k == "right" or k == "CursorRight" or k == "cursorright" or k == "KP6" or (group.Right and k == group.Right) then
+        return self:onMoveEast()
+    end
+
+    -- Page keys: cycle active digit (Kindle 4 has no number keys)
+    if k == "PgFwd" or k == "Next" or k == "NextPage" or k == "PageFwd" or
+       k == "RPgFwd" or k == "LPgFwd" or (group.PgFwd and k == group.PgFwd) then
+        return self:onDigitNext()
+    elseif k == "PgBack" or k == "Prev" or k == "PrevPage" or k == "PageBack" or
+           k == "RPgBack" or k == "LPgBack" or (group.PgBack and k == group.PgBack) then
+        return self:onDigitPrev()
+    end
+
+    -- Center press: place active digit (or toggle note digit if note_mode)
+    if k == "Press" or k == "Select" or (group.Press and k == group.Press) then
+        return self:onPress()
+    end
+
+    -- Home key: toggle note mode (Kindle 4 has a Home key that reliably emits an event)
+    if k == "Home" or (group.Home and k == group.Home) then
+        return self:onToggleNote()
+    end
+
+    -- Back/Menu: ALWAYS provide an exit route on key devices.
+    -- Back closes immediately; Menu opens the command menu.
+    if k == "Back" or k == "Escape" or (group.Back and k == group.Back) then
+        return self:onCloseKey()
+    elseif k == "Menu" then
+        return self:onOpenMenu()
+    end
+
+    -- If a device actually has number keys, still support them
+    local digit = tonumber(k)
+    if digit and digit >= 1 and digit <= 9 then
+        self.active_digit = digit
+        self:updateStatus()
+        return true
+    end
+
+    return false
+end
+
+-- Override handleKey to intercept arrow keys before child widgets (like ButtonTable)
+function SudokuScreen:handleKey(key)
+    local k = normalizeKeyEvent(key)
+    if Device:hasKeys() and self.board and self.board_widget then
+        local group = Device and Device.input and Device.input.group or {}
+        -- Always intercept arrow keys for board navigation, prevent ButtonTable from handling them
+        if k == "Up" or k == "up" or k == "CursorUp" or k == "cursorup" or k == "KP8" or (group.Up and k == group.Up) then
+            if self:onMoveNorth() then return true end
+        elseif k == "Down" or k == "down" or k == "CursorDown" or k == "cursordown" or k == "KP2" or (group.Down and k == group.Down) then
+            if self:onMoveSouth() then return true end
+        elseif k == "Left" or k == "left" or k == "CursorLeft" or k == "cursorleft" or k == "KP4" or (group.Left and k == group.Left) then
+            if self:onMoveWest() then return true end
+        elseif k == "Right" or k == "right" or k == "CursorRight" or k == "cursorright" or k == "KP6" or (group.Right and k == group.Right) then
+            if self:onMoveEast() then return true end
+        elseif k == "PgFwd" or k == "Next" or k == "NextPage" or k == "PageFwd" or
+               k == "RPgFwd" or k == "LPgFwd" or (group.PgFwd and k == group.PgFwd) then
+            if self:onDigitNext() then return true end
+        elseif k == "PgBack" or k == "Prev" or k == "PrevPage" or k == "PageBack" or
+               k == "RPgBack" or k == "LPgBack" or (group.PgBack and k == group.PgBack) then
+            if self:onDigitPrev() then return true end
+        elseif k == "Press" or k == "Select" or (group.Press and k == group.Press) then
+            if self:onPress() then return true end
+        elseif k == "Home" or (group.Home and k == group.Home) then
+            if self:onToggleNote() then return true end
+        elseif k == "Back" or k == "Escape" or (group.Back and k == group.Back) then
+            if self:onCloseKey() then return true end
+        elseif k == "Menu" then
+            if self:onOpenMenu() then return true end
+        end
+    end
+    -- For other keys, use default handling
+    return InputContainer.handleKey(self, key)
+end
+
 function SudokuScreen:init()
     self.dimen = Geom:new{ x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
     self.covers_fullscreen = true
     self.vertical_align = "center"
     self.note_mode = false
+    self.active_digit = 1
+    self._closed = false
     self.undo_button = nil
     if Device:hasKeys() then
-        self.key_events.Close = { { Device.input.group.Back } }
+        local function addKey(list, key)
+            if key then
+                list[#list + 1] = { key }
+            end
+        end
+        local function groupKey(name)
+            return Device and Device.input and Device.input.group and Device.input.group[name] or nil
+        end
+
+        self.key_events = {
+            OpenMenu = {},
+            MoveNorth = {},
+            MoveSouth = {},
+            MoveWest = {},
+            MoveEast = {},
+            DigitNext = {},
+            DigitPrev = {},
+            Press = {},
+            ToggleNote = {},
+        }
+
+        -- On key-only devices, Back opens the command menu (Close is in that menu)
+        addKey(self.key_events.OpenMenu, groupKey("Back"))
+        addKey(self.key_events.OpenMenu, "Back")
+        addKey(self.key_events.OpenMenu, "Menu")
+        addKey(self.key_events.OpenMenu, "Escape")
+
+        addKey(self.key_events.MoveNorth, "Up")
+        addKey(self.key_events.MoveNorth, "CursorUp")
+        addKey(self.key_events.MoveNorth, groupKey("Up"))
+
+        addKey(self.key_events.MoveSouth, "Down")
+        addKey(self.key_events.MoveSouth, "CursorDown")
+        addKey(self.key_events.MoveSouth, groupKey("Down"))
+
+        addKey(self.key_events.MoveWest, "Left")
+        addKey(self.key_events.MoveWest, "CursorLeft")
+        addKey(self.key_events.MoveWest, groupKey("Left"))
+
+        addKey(self.key_events.MoveEast, "Right")
+        addKey(self.key_events.MoveEast, "CursorRight")
+        addKey(self.key_events.MoveEast, groupKey("Right"))
+
+        -- Page keys cycle the active digit (1..9)
+        addKey(self.key_events.DigitNext, "PgFwd")
+        addKey(self.key_events.DigitNext, "Next")
+        addKey(self.key_events.DigitNext, "NextPage")
+        addKey(self.key_events.DigitNext, "PageFwd")
+        addKey(self.key_events.DigitNext, "RPgFwd")
+        addKey(self.key_events.DigitNext, "LPgFwd")
+        addKey(self.key_events.DigitNext, groupKey("PgFwd"))
+
+        addKey(self.key_events.DigitPrev, "PgBack")
+        addKey(self.key_events.DigitPrev, "Prev")
+        addKey(self.key_events.DigitPrev, "PrevPage")
+        addKey(self.key_events.DigitPrev, "PageBack")
+        addKey(self.key_events.DigitPrev, "RPgBack")
+        addKey(self.key_events.DigitPrev, "LPgBack")
+        addKey(self.key_events.DigitPrev, groupKey("PgBack"))
+
+        addKey(self.key_events.Press, "Press")
+        addKey(self.key_events.Press, "Select")
+        addKey(self.key_events.Press, groupKey("Press"))
+
+        -- Home key toggles Note mode on Kindle 4.
+        addKey(self.key_events.ToggleNote, "Home")
+        addKey(self.key_events.ToggleNote, groupKey("Home"))
+
+        -- Add number key handlers if available
+        for i = 1, 9 do
+            local key_str = tostring(i)
+            self.key_events[key_str] = { { key_str } }
+        end
+    end
+    if Device:hasKeys() then
+        self.header_text = TextWidget:new{
+            text = "",
+            face = Font:getFace("smallinfofont"),
+        }
     end
     self.status_text = TextWidget:new{
-        text = _("Tap a cell, then pick a number."),
+        text = Device:hasKeys()
+            and _("5-way: move. Page keys: change digit. Center: place digit. Home: Note. Back: menu.")
+            or _("Tap a cell, then pick a number."),
         face = Font:getFace("smallinfofont"),
     }
     self.board_widget = SudokuBoardWidget:new{
@@ -827,11 +1161,37 @@ function SudokuScreen:init()
         onSelectionChanged = function()
             self:updateStatus()
         end,
+        onDigit = function(digit)
+            self:onDigit(digit)
+        end,
+        onErase = function()
+            self:onErase()
+        end,
+        onStatusUpdate = function()
+            self:updateStatus()
+        end,
     }
+    -- If the last saved state had "show result" enabled, hide it on entry for key-only gameplay.
+    if self.board and self.board.reveal_solution then
+        self.board.reveal_solution = false
+    end
     self:buildLayout()
+    self:updateHeader()
     UIManager:setDirty(self, function()
         return "ui", self.dimen
     end)
+end
+
+function SudokuScreen:onCloseKey()
+    -- Hard exit path for key-only devices.
+    if self._closed then
+        return true
+    end
+    self._closed = true
+    self:onClose()
+    UIManager:close(self)
+    UIManager:setDirty(nil, "full")
+    return true
 end
 
 function SudokuScreen:paintTo(bb, x, y)
@@ -853,108 +1213,131 @@ function SudokuScreen:buildLayout()
         margin = Size.margin.default,
         self.board_widget,
     }
-    local top_buttons = ButtonTable:new{
-        shrink_unneeded_width = true,
-        width = math.floor(Screen:getWidth() * 0.9),
-        buttons = {
-            {
+    local top_buttons, keypad
+    if Device:hasKeys() then
+        -- Key-only devices: avoid ButtonTable (it captures arrow keys).
+        -- Use Back to open an action menu instead.
+        self.show_result_button = nil
+        self.difficulty_button = nil
+        self.note_button = nil
+        self.undo_button = nil
+    else
+        top_buttons = ButtonTable:new{
+            shrink_unneeded_width = true,
+            width = math.floor(Screen:getWidth() * 0.9),
+            buttons = {
                 {
-                    text = _("New game"),
-                    callback = function()
-                        self:onNewGame()
-                    end,
-                },
-                {
-                    id = "difficulty_button",
-                    text = self:getDifficultyButtonText(),
-                    callback = function()
-                        self:openDifficultyMenu()
-                    end,
-                },
-                {
-                    id = "show_result",
-                    text = _("Show result"),
-                    callback = function()
-                        self:toggleSolution()
-                    end,
-                },
-                {
-                    text = _("Close"),
-                    callback = function()
-                        self:onClose()
-                        UIManager:close(self)
-                        UIManager:setDirty(nil, "full")
-                    end,
+                    {
+                        text = _("New game"),
+                        callback = function()
+                            self:onNewGame()
+                        end,
+                    },
+                    {
+                        id = "difficulty_button",
+                        text = self:getDifficultyButtonText(),
+                        callback = function()
+                            self:openDifficultyMenu()
+                        end,
+                    },
+                    {
+                        id = "show_result",
+                        text = _("Show result"),
+                        callback = function()
+                            self:toggleSolution()
+                        end,
+                    },
+                    {
+                        text = _("Close"),
+                        callback = function()
+                            self:onClose()
+                            UIManager:close(self)
+                            UIManager:setDirty(nil, "full")
+                        end,
+                    },
                 },
             },
-        },
-    }
-    self.show_result_button = top_buttons:getButtonById("show_result")
-    self.difficulty_button = top_buttons:getButtonById("difficulty_button")
+        }
+        self.show_result_button = top_buttons:getButtonById("show_result")
+        self.difficulty_button = top_buttons:getButtonById("difficulty_button")
 
-    local keypad_rows = {}
-    local value = 1
-    for _ = 1, 3 do
-        local row = {}
+        local keypad_rows = {}
+        local value = 1
         for _ = 1, 3 do
-            local digit = value
-            row[#row + 1] = {
-                text = tostring(digit),
-                callback = function()
-                    self:onDigit(digit)
-                end,
-            }
-            value = value + 1
+            local row = {}
+            for _ = 1, 3 do
+                local digit = value
+                row[#row + 1] = {
+                    text = tostring(digit),
+                    callback = function()
+                        self:onDigit(digit)
+                    end,
+                }
+                value = value + 1
+            end
+            keypad_rows[#keypad_rows + 1] = row
         end
-        keypad_rows[#keypad_rows + 1] = row
+        keypad_rows[#keypad_rows + 1] = {
+            {
+                id = "note_button",
+                text = self:getNoteButtonText(),
+                callback = function()
+                    self:toggleNoteMode()
+                end,
+            },
+            {
+                text = _("Erase"),
+                callback = function()
+                    self:onErase()
+                end,
+            },
+            {
+                text = _("Check"),
+                callback = function()
+                    self:checkProgress()
+                end,
+            },
+            {
+                id = "undo_button",
+                text = _("Undo"),
+                callback = function()
+                    self:onUndo()
+                end,
+            },
+        }
+        keypad = ButtonTable:new{
+            width = math.floor(Screen:getWidth() * 0.75),
+            shrink_unneeded_width = true,
+            buttons = keypad_rows,
+        }
+        self.note_button = keypad:getButtonById("note_button")
+        self.undo_button = keypad:getButtonById("undo_button")
     end
-    keypad_rows[#keypad_rows + 1] = {
-        {
-            id = "note_button",
-            text = self:getNoteButtonText(),
-            callback = function()
-                self:toggleNoteMode()
-            end,
-        },
-        {
-            text = _("Erase"),
-            callback = function()
-                self:onErase()
-            end,
-        },
-        {
-            text = _("Check"),
-            callback = function()
-                self:checkProgress()
-            end,
-        },
-        {
-            id = "undo_button",
-            text = _("Undo"),
-            callback = function()
-                self:onUndo()
-            end,
-        },
-    }
-    local keypad = ButtonTable:new{
-        width = math.floor(Screen:getWidth() * 0.75),
-        shrink_unneeded_width = true,
-        buttons = keypad_rows,
-    }
-    self.note_button = keypad:getButtonById("note_button")
-    self.undo_button = keypad:getButtonById("undo_button")
-    self.layout = VerticalGroup:new{
-        align = "center",
-        VerticalSpan:new{ width = Size.span.vertical_large },
-        top_buttons,
-        VerticalSpan:new{ width = Size.span.vertical_large },
-        board_frame,
-        VerticalSpan:new{ width = Size.span.vertical_large },
-        self.status_text,
-        VerticalSpan:new{ width = Size.span.vertical_large },
-        keypad,
-        VerticalSpan:new{ width = Size.span.vertical_large },
-    }
+    if Device:hasKeys() then
+        self.layout = VerticalGroup:new{
+            align = "center",
+            VerticalSpan:new{ width = Size.span.vertical_large },
+            self.header_text,
+            VerticalSpan:new{ width = Size.span.vertical_large },
+            board_frame,
+            VerticalSpan:new{ width = Size.span.vertical_large },
+            self.status_text,
+            VerticalSpan:new{ width = Size.span.vertical_large },
+        }
+    else
+        self.layout = VerticalGroup:new{
+            align = "center",
+            VerticalSpan:new{ width = Size.span.vertical_large },
+            top_buttons,
+            VerticalSpan:new{ width = Size.span.vertical_large },
+            board_frame,
+            VerticalSpan:new{ width = Size.span.vertical_large },
+            self.status_text,
+            VerticalSpan:new{ width = Size.span.vertical_large },
+            keypad,
+            VerticalSpan:new{ width = Size.span.vertical_large },
+        }
+    end
     self[1] = self.layout
     self:ensureShowButtonState()
     self:updateNoteButton()
@@ -985,6 +1368,7 @@ end
 function SudokuScreen:toggleNoteMode()
     self.note_mode = not self.note_mode
     self:updateNoteButton()
+    self:updateHeader()
     self:updateStatus(self.note_mode and _("Note mode enabled.") or _("Note mode disabled."))
 end
 
@@ -1014,6 +1398,7 @@ function SudokuScreen:openDifficultyMenu()
             self:updateStatus()
         end
         self:updateDifficultyButton()
+        self:updateHeader()
         if menu then
             UIManager:close(menu)
         end
@@ -1042,6 +1427,27 @@ function SudokuScreen:openDifficultyMenu()
     UIManager:show(menu)
 end
 
+function SudokuScreen:getHeaderText()
+    local difficulty_label = DIFFICULTY_LABELS[self.board.difficulty] or self.board.difficulty or ""
+    local note_label = self.note_mode and _("Note: On") or _("Note: Off")
+    return T(_("Difficulty: %1   %2"), difficulty_label, note_label)
+end
+
+function SudokuScreen:updateHeader()
+    if not (Device:hasKeys() and self.header_text) then
+        return
+    end
+    self.header_text:setText(self:getHeaderText())
+    UIManager:setDirty(self, function()
+        return "ui", self.dimen
+    end)
+end
+
+function SudokuScreen:onToggleNote()
+    self:toggleNoteMode()
+    return true
+end
+
 function SudokuScreen:updateStatus(message)
     local status
     if message then
@@ -1050,18 +1456,39 @@ function SudokuScreen:updateStatus(message)
         local remaining = self.board:getRemainingCells()
         local row, col = self.board:getSelection()
         status = T(_("Selected: %1,%2  ·  Empty cells: %3"), row, col, remaining)
+        if Device:hasKeys() then
+            status = status .. "\n" .. T(_("Digit: %1"), self.active_digit or 1)
+        end
         if self.board:isShowingSolution() then
             status = status .. "\n" .. _("Result is being shown; editing is disabled.")
         elseif self.board:isSolved() then
             status = _("Congratulations! Puzzle solved.")
-        elseif self.note_mode then
-            status = status .. "\n" .. _("Note mode is ON.")
+        -- elseif self.note_mode then
+        --     status = status .. "\n" .. _("Note mode is ON.")
         end
     end
     self.status_text:setText(status)
     UIManager:setDirty(self, function()
         return "ui", self.dimen
     end)
+end
+
+function SudokuScreen:onDigitNext()
+    self.active_digit = (self.active_digit or 1) + 1
+    if self.active_digit > 9 then
+        self.active_digit = 1
+    end
+    self:updateStatus()
+    return true
+end
+
+function SudokuScreen:onDigitPrev()
+    self.active_digit = (self.active_digit or 1) - 1
+    if self.active_digit < 1 then
+        self.active_digit = 9
+    end
+    self:updateStatus()
+    return true
 end
 
 function SudokuScreen:onDigit(value)
@@ -1160,6 +1587,121 @@ function SudokuScreen:onUndo()
     self.plugin:saveState()
     self:updateUndoButton()
 end
+
+function SudokuScreen:onMoveNorth()
+    -- Always handle arrow keys for board navigation, prevent ButtonTable from handling them
+    if self.board and self.board_widget then
+        local row, col = self.board:getSelection()
+        if row > 1 then
+            self.board:setSelection(row - 1, col)
+            if self.board_widget.onSelectionChanged then
+                self.board_widget.onSelectionChanged(row - 1, col)
+            end
+            self.board_widget:refresh()
+            self:updateStatus()
+        end
+        UIManager:setDirty(nil, "partial")
+        return true
+    end
+    return false
+end
+
+function SudokuScreen:onMoveSouth()
+    -- Always handle arrow keys for board navigation, prevent ButtonTable from handling them
+    if self.board and self.board_widget then
+        local row, col = self.board:getSelection()
+        if row < 9 then
+            self.board:setSelection(row + 1, col)
+            if self.board_widget.onSelectionChanged then
+                self.board_widget.onSelectionChanged(row + 1, col)
+            end
+            self.board_widget:refresh()
+            self:updateStatus()
+        end
+        UIManager:setDirty(nil, "partial")
+        return true
+    end
+    return false
+end
+
+function SudokuScreen:onMoveWest()
+    -- Always handle arrow keys for board navigation, prevent ButtonTable from handling them
+    if self.board and self.board_widget then
+        local row, col = self.board:getSelection()
+        if col > 1 then
+            self.board:setSelection(row, col - 1)
+            if self.board_widget.onSelectionChanged then
+                self.board_widget.onSelectionChanged(row, col - 1)
+            end
+            self.board_widget:refresh()
+            self:updateStatus()
+        end
+        UIManager:setDirty(nil, "partial")
+        return true
+    end
+    return false
+end
+
+function SudokuScreen:onMoveEast()
+    -- Always handle arrow keys for board navigation, prevent ButtonTable from handling them
+    if self.board and self.board_widget then
+        local row, col = self.board:getSelection()
+        if col < 9 then
+            self.board:setSelection(row, col + 1)
+            if self.board_widget.onSelectionChanged then
+                self.board_widget.onSelectionChanged(row, col + 1)
+            end
+            self.board_widget:refresh()
+            self:updateStatus()
+        end
+        UIManager:setDirty(nil, "partial")
+        return true
+    end
+    return false
+end
+
+function SudokuScreen:onPress()
+    -- Center key: place the active digit (or toggle a note digit if note_mode)
+    local d = self.active_digit or 1
+    self:onDigit(d)
+    return true
+end
+
+function SudokuScreen:onOpenMenu()
+    local menu
+    local items = {
+        { text = _("New game"), callback = function() self:onNewGame(); if menu then UIManager:close(menu) end; return true end },
+        { text = _("Difficulty"), callback = function() self:openDifficultyMenu(); if menu then UIManager:close(menu) end; return true end },
+        { text = self.board:isShowingSolution() and _("Hide result") or _("Show result"), callback = function() self:toggleSolution(); if menu then UIManager:close(menu) end; return true end },
+        { text = self.note_mode and _("Note: Off") or _("Note: On"), callback = function() self:toggleNoteMode(); if menu then UIManager:close(menu) end; return true end },
+        { text = _("Erase cell"), callback = function() self:onErase(); if menu then UIManager:close(menu) end; return true end },
+        { text = _("Check"), callback = function() self:checkProgress(); if menu then UIManager:close(menu) end; return true end },
+        { text = _("Undo"), enabled = self.board:canUndo(), callback = function() self:onUndo(); if menu then UIManager:close(menu) end; return true end },
+        { text = _("Close"), callback = function() self:onClose(); UIManager:close(self); UIManager:setDirty(nil, "full"); if menu then UIManager:close(menu) end; return true end },
+    }
+    menu = Menu:new{
+        title = _("Sudoku"),
+        item_table = items,
+        width = math.floor(Screen:getWidth() * 0.8),
+        height = math.floor(Screen:getHeight() * 0.9),
+        disable_footer_padding = true,
+        show_parent = self,
+    }
+    UIManager:show(menu)
+    return true
+end
+
+
+-- Individual number key handlers for direct key press
+function SudokuScreen:on1() self:onDigit(1); return true end
+function SudokuScreen:on2() self:onDigit(2); return true end
+function SudokuScreen:on3() self:onDigit(3); return true end
+function SudokuScreen:on4() self:onDigit(4); return true end
+function SudokuScreen:on5() self:onDigit(5); return true end
+function SudokuScreen:on6() self:onDigit(6); return true end
+function SudokuScreen:on7() self:onDigit(7); return true end
+function SudokuScreen:on8() self:onDigit(8); return true end
+function SudokuScreen:on9() self:onDigit(9); return true end
 
 local Sudoku = WidgetContainer:extend{
     name = "sudoku",
